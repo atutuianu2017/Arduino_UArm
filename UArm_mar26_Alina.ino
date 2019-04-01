@@ -33,11 +33,11 @@ SoftwareSerial BTserial(2, 3);
 
 //declare and initialize variables
 //thresholds for each sensor
-int lowerArmThreshold = 300;
+int lowerArmThreshold = 0;
 int upperArmThreshold = 300;
 int bicepsThreshold = 400;
 //a minimum and a maximum threshold used to check if calculated thresholds are correct
-int minThreshold = 200;
+int minThreshold = 100;
 int maxThreshold = 600;
 
 //variables to read Myoware Sensor input
@@ -92,7 +92,7 @@ int addressBicepsThreshold = 4;
 //Prints average, median, mean, maximum, minimum of an array of floats
 void printStatistics( float *array, int size);
 
-//Reads "numReadings" times from the analog input pin and it returns the median
+//Reads "numReadings" times from the analog input pin and it returns the average
 int sensorCalibration(int pin);
 //Checks validity of a threshold
 bool isThresholdValid(int thresh);
@@ -121,6 +121,9 @@ void sendData(char data);
 void writeThresholdsToEEPROM();
 void readThresholdsFromEEPROM();
 
+ boolean now = true;
+
+
 /**********************************************************************
  This is the setup function. It runs once when the Arduino is turned on
  **********************************************************************/
@@ -137,18 +140,28 @@ void setup() {
   middleServo.attach(middlePin);
   ringPinkyServo.attach(ringPinkyPin);
   thumbSideServo.attach(thumbSidePin);
-
+  
+  //set UArm to open position
   open_hand();
 
   //We need to read all the thresholds stored in EEPROM and turn the calibrated boolean variables true
   //writeThresholdsToEEPROM();
-  readThresholdsFromEEPROM();
+
   
+  //we need to check that there exist a valid threshold in eeprom. 
+  //readThresholdsFromEEPROM();
+
+  //Run next code if you need to see on the Serial Monitor what values were read from EEPROM
   //Serial.println(lowerArmThreshold);
   //Serial.println(upperArmThreshold);
   //Serial.println(bicepsThreshold);
 
   calibrated = true;
+  calibratedLowerArmSensor = true; 
+  calibratedUpperArmSensor = true; 
+  calibratedBicepsSensor = true; 
+
+
   //run this function to check that all servos are working properly
   //doAllGestures();
 
@@ -161,23 +174,38 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
 
+  //read data coming from Android app via bluetooth
   receiveData();
+  //display data on Serial Monitor
   showNewData();
+  //process data (turn calibration flags false in order to start the calibration process)
+  processIncomingData();
 
+      
+ 
   //check if calibrated
   if (!calibrated) {
     if(!calibratedLowerArmSensor) {
       //calibrate lowerArm sensor
       lowerArmThreshold = sensorCalibration(lowerArmPin);
       //check if threshold is valid
+      Serial.println("The new value of lower arm threshold is: ");
+      Serial.println(lowerArmThreshold);
       if(isThresholdValid(lowerArmThreshold)) {
         calibratedLowerArmSensor = true;
         //sendData to app to inform that step 1 completed
-        sendData(LAS_CALIBRATED);
+        Serial.println("The calibratedLowerArmSensor was turned: ");
+        Serial.println(calibratedLowerArmSensor);
+        BTserial.print("Lower Arm Threshold: ");
+        BTserial.print(lowerArmThreshold);
+        //sendData("Lower Arm Threshold: ");
+        //sendData(lowerArmThreshold);
+        //sendData(LAS_CALIBRATED);
       } 
     }
+  } 
     //calibrate upperArm sensor
-    if(!calibratedUpperArmSensor) {
+    /*if(!calibratedUpperArmSensor) {
       //calibrate lowerArm sensor
       upperArmThreshold = sensorCalibration(upperArmPin);
       //check if threshold is valid
@@ -206,7 +234,7 @@ void loop() {
       sendData(CALIBRATION_FINISHED);
     }
   }
-
+*/
 
 /*
 
@@ -300,15 +328,17 @@ void printStatistics( float *array, int size)
 
 int sensorCalibration(int pin)
 {
-  float array[numReadings] = {0};
+  int array[numReadings] = {0};
+  int average = 0;
   for (int i = 0; i < numReadings; i++)
   {
     array[i] = analogRead(pin);
+    average += array[i];
     delay(100);
   }
 
-  printStatistics(array, numReadings);
-  return stats.average(array, numReadings);
+ // printStatistics(array, numReadings);
+  return average/numReadings;
 }
 
 int getSensorValue(int pin)
@@ -465,15 +495,20 @@ void showNewData() {
   if (newData == true) {
     Serial.print("This just in ... ");
     Serial.println(receivedChars);
-    newData = false;
+   
   }
 }
 
 void processIncomingData() {
   if(newData == true) {
     char data = receivedChars[0];
+    Serial.println("This is the data read from receivedChars array");
+    Serial.println(data);
     if(data == START_CALIBRATION) {
       calibrated = false;
+      //calibratedLowerArmSensor = false;
+      //calibratedUpperArmSensor = false;
+      //calibratedBicepsSensor = false;
     }
     if(data == CALIBRATE_LAS) {
       calibratedLowerArmSensor = false;
@@ -485,6 +520,7 @@ void processIncomingData() {
       calibratedBicepsSensor = false;
     }
   }
+   newData = false;
 }
 
 void sendData(char data) {
